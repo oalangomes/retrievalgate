@@ -1,0 +1,19 @@
+schema_version: 1
+id: medication-history
+query: add medication usage history endpoint
+top_k: 3
+
+ground_truth:
+  relevant:
+    - src/services/medicationUsageHistoryService.js
+    - src/controllers/medicationUsageController.js
+    - tests/medicationUsageHistoryService.test.js
+  exhaustive: false
+
+gates:
+  recall:
+    min: 1.0
+  rr:
+    min: 0.5
+  result_count:
+    max: 3
