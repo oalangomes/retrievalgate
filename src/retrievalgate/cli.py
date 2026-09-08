@@ -41,7 +41,9 @@ def validate(path: Annotated[Path, typer.Argument()]) -> None:
 def run(
     path: Annotated[Path, typer.Argument()],
     adapter: Annotated[str, typer.Option("--adapter", help="External retriever command.")],
-    output: Annotated[Path | None, typer.Option("--output", help="Write structured JSON result.")] = None,
+    output: Annotated[
+        Path | None, typer.Option("--output", help="Write structured JSON result.")
+    ] = None,
     timeout: Annotated[
         float, typer.Option("--timeout", min=0.001, help="Adapter timeout in seconds.")
     ] = 30.0,
