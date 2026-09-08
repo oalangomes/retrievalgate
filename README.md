@@ -146,23 +146,41 @@ gates:
     max: 8
 ```
 
+## Baseline comparison
+
+Results can be compared without coupling the test runner to a specific retriever:
+
+```bash
+retrievalgate compare baseline.json current.json
+```
+
+Comparison is deliberately strict:
+
+- scenario IDs must be identical;
+- scenario fingerprints must match;
+- metric availability and expected result IDs must be compatible;
+- scenarios are compared in deterministic ID order.
+
+The output reports metric deltas, expected IDs that disappeared or recovered, rank changes, and PASS/FAIL transitions.
+
+`compare` does **not** invent relative thresholds. A metric getting slightly worse is reported, but is not automatically considered a failed contract. Exit code `1` means the **current** result violates its scenario gates. Incompatible or invalid result files return `2`.
+
 ## CLI
 
 ```text
 retrievalgate validate <scenario-or-directory>
 retrievalgate run <scenario-or-directory> --adapter <command>
 retrievalgate run <scenario-or-directory> --adapter <command> --output result.json
+retrievalgate compare <baseline.json> <current.json>
 ```
-
-`retrievalgate compare baseline.json current.json` is tracked for the v0.1.0 MVP but intentionally lives in a separate implementation slice.
 
 ### Exit codes
 
 | Code | Meaning |
 |---:|---|
-| `0` | All executed retrieval contracts passed |
-| `1` | Execution succeeded, but at least one retrieval contract failed |
-| `2` | Scenario, configuration, adapter, or protocol error |
+| `0` | Current retrieval contracts pass |
+| `1` | Execution/comparison succeeded, but the current result has a failed retrieval contract |
+| `2` | Scenario, configuration, adapter, protocol, or comparison error |
 
 ## Design boundaries
 

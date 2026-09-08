@@ -8,6 +8,7 @@ from typing import Annotated
 import typer
 
 from retrievalgate.adapter import run_adapter
+from retrievalgate.comparison import compare_files, format_comparison
 from retrievalgate.errors import RetrievalGateError
 from retrievalgate.evaluator import evaluate
 from retrievalgate.results import build_suite_result, write_result
@@ -80,6 +81,24 @@ def run(
     except RetrievalGateError as exc:
         _error(str(exc))
         raise typer.Exit(code=2) from exc
+
+
+@app.command()
+def compare(
+    baseline: Annotated[Path, typer.Argument(help="Baseline result JSON.")],
+    current: Annotated[Path, typer.Argument(help="Current result JSON.")],
+) -> None:
+    """Compare two compatible structured result files."""
+
+    try:
+        comparison = compare_files(baseline, current)
+    except RetrievalGateError as exc:
+        _error(str(exc))
+        raise typer.Exit(code=2) from exc
+
+    typer.echo(format_comparison(comparison))
+    if comparison.exit_code:
+        raise typer.Exit(code=comparison.exit_code)
 
 
 if __name__ == "__main__":
