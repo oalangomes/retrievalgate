@@ -1,5 +1,3 @@
-from pathlib import Path
-
 import pytest
 
 from retrievalgate.comparison import compare_results, format_comparison
