@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Literal
+
 from retrievalgate.models import (
     AdapterResponse,
     ExpectedResults,
@@ -76,7 +78,9 @@ def evaluate(scenario: Scenario, response: AdapterResponse) -> ScenarioResult:
             )
         )
 
-    status = "pass" if all(gate.passed for gate in gate_results) else "fail"
+    status: Literal["pass", "fail"] = (
+        "pass" if all(gate.passed for gate in gate_results) else "fail"
+    )
     return ScenarioResult(
         id=scenario.id,
         scenario_fingerprint=scenario_fingerprint(scenario),
