@@ -11,3 +11,7 @@ class ScenarioError(RetrievalGateError):
 
 class AdapterError(RetrievalGateError):
     """An external retriever failed the command adapter contract."""
+
+
+class ComparisonError(RetrievalGateError):
+    """Two structured result files cannot be compared safely."""
