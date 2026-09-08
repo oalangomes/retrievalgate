@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Annotated
 
 import typer
 
@@ -24,7 +25,7 @@ def _error(message: str) -> None:
 
 
 @app.command()
-def validate(path: Path = typer.Argument(..., exists=False)) -> None:
+def validate(path: Annotated[Path, typer.Argument()]) -> None:
     """Validate one scenario file or a directory of scenarios."""
 
     try:
@@ -38,10 +39,12 @@ def validate(path: Path = typer.Argument(..., exists=False)) -> None:
 
 @app.command()
 def run(
-    path: Path = typer.Argument(..., exists=False),
-    adapter: str = typer.Option(..., "--adapter", help="External retriever command."),
-    output: Path | None = typer.Option(None, "--output", help="Write structured JSON result."),
-    timeout: float = typer.Option(30.0, "--timeout", min=0.001, help="Adapter timeout in seconds."),
+    path: Annotated[Path, typer.Argument()],
+    adapter: Annotated[str, typer.Option("--adapter", help="External retriever command.")],
+    output: Annotated[Path | None, typer.Option("--output", help="Write structured JSON result.")] = None,
+    timeout: Annotated[
+        float, typer.Option("--timeout", min=0.001, help="Adapter timeout in seconds.")
+    ] = 30.0,
 ) -> None:
     """Execute scenarios and fail when a retrieval contract fails."""
 
