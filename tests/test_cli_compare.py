@@ -4,13 +4,13 @@ from typer.testing import CliRunner
 
 from retrievalgate.cli import app
 from retrievalgate.evaluator import evaluate
-from retrievalgate.models import AdapterResponse, Scenario
+from retrievalgate.models import AdapterResponse, Scenario, SuiteResult
 from retrievalgate.results import build_suite_result, write_result
 
 runner = CliRunner()
 
 
-def _suite(found: bool):
+def _suite(found: bool) -> SuiteResult:
     scenario = Scenario.model_validate(
         {
             "schema_version": 1,
