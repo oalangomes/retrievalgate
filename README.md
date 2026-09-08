@@ -38,15 +38,25 @@ gates:
     min: 0.5
 ```
 
-## Quickstart
+## Installation
 
-> The project is currently pre-release. Install from a local clone until `v0.1.0` is published.
+Install as an isolated CLI with either tool:
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -e .
+pipx install retrievalgate
 ```
+
+or:
+
+```bash
+uv tool install retrievalgate
+```
+
+Python 3.11 or newer is required.
+
+> `v0.1.0` installation becomes available after the first PyPI publication. Until then, install from a local clone with `pip install -e .`.
+
+## Quickstart
 
 Validate the example contract:
 
@@ -208,7 +218,7 @@ ruff check .
 mypy src tests
 ```
 
-CI runs tests on Python 3.11, 3.12, and 3.13 plus lint and type checking.
+CI runs tests on Python 3.11, 3.12, and 3.13 plus lint, type checking, distribution builds, package metadata validation, and a clean-wheel quickstart smoke.
 
 ## Documentation
 
@@ -216,11 +226,12 @@ CI runs tests on Python 3.11, 3.12, and 3.13 plus lint and type checking.
 - [Command adapter protocol](docs/adapter-protocol.md)
 - [Structured result format](docs/result-format.md)
 - [Product boundary ADR](docs/adr/0001-product-boundary.md)
+- [Release process](docs/releasing.md)
 - [Contributing](CONTRIBUTING.md)
 
 ## Status
 
-`retrievalgate` is under active development toward `v0.1.0`. The public contracts are versioned from day one, but breaking changes are still possible before the first release.
+`retrievalgate` is preparing its first public release, `v0.1.0`. Public contracts are versioned from day one.
 
 ## License
 
