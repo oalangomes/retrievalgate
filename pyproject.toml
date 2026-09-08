@@ -1,0 +1,66 @@
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[project]
+name = "retrievalgate"
+version = "0.1.0.dev0"
+description = "Regression tests for retrieval."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [
+  { name = "Alan Gomes" }
+]
+keywords = ["retrieval", "rag", "search", "evaluation", "testing", "cli", "context-engineering"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Software Development :: Testing",
+]
+dependencies = [
+  "pydantic>=2.8,<3",
+  "PyYAML>=6,<7",
+  "typer>=0.12,<1",
+]
+
+[project.optional-dependencies]
+dev = [
+  "mypy>=1.11",
+  "pytest>=8",
+  "ruff>=0.6",
+  "types-PyYAML>=6",
+]
+
+[project.scripts]
+retrievalgate = "retrievalgate.cli:app"
+
+[project.urls]
+Homepage = "https://github.com/oalangomes/retrievalgate"
+Repository = "https://github.com/oalangomes/retrievalgate"
+Issues = "https://github.com/oalangomes/retrievalgate/issues"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/retrievalgate"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py311"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+packages = ["retrievalgate"]
+mypy_path = "src"
