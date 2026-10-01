@@ -64,12 +64,21 @@ def load_scenarios(path: Path) -> list[Scenario]:
 
 
 def scenario_fingerprint(scenario: Scenario) -> str:
-    """Return a stable SHA-256 over the normalized scenario contract."""
+    """Return a stable SHA-256 over the normalized scenario contract.
 
-    payload = json.dumps(
-        scenario.model_dump(mode="json"),
+    New optional fields are omitted while they retain their defaults so an
+    unchanged v0.1 scenario keeps its historical fingerprint.
+    """
+
+    payload = scenario.model_dump(mode="json")
+    if scenario.evaluation is None:
+        payload.pop("evaluation", None)
+    if not scenario.regression_gates:
+        payload.pop("regression_gates", None)
+    encoded = json.dumps(
+        payload,
         sort_keys=True,
         separators=(",", ":"),
         ensure_ascii=False,
     ).encode("utf-8")
-    return f"sha256:{hashlib.sha256(payload).hexdigest()}"
+    return f"sha256:{hashlib.sha256(encoded).hexdigest()}"
