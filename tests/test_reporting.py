@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from retrievalgate.evaluator import evaluate
-from retrievalgate.models import AdapterResponse, Scenario
+from retrievalgate.models import AdapterResponse, Scenario, SuiteResult
 from retrievalgate.reporting import (
     format_console_report,
     format_junit_report,
@@ -11,7 +11,7 @@ from retrievalgate.reporting import (
 from retrievalgate.results import build_suite_result
 
 
-def _suite():
+def _suite() -> SuiteResult:
     scenario = Scenario.model_validate(
         {
             "schema_version": 1,
