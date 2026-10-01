@@ -1,14 +1,19 @@
 # Scenario schema v1
 
-A scenario describes one retrieval expectation. Scenario files are YAML and use `schema_version: 1`.
+A scenario describes one retrieval expectation. Scenario files remain on
+`schema_version: 1`; the evaluation/reporting additions are backward-compatible
+extensions.
 
-## Minimal example
+## Example
 
 ```yaml
 schema_version: 1
 id: find-auth-handler
 query: where is authentication handled?
-top_k: 10
+top_k: 20
+
+evaluation:
+  cutoffs: [1, 5, 10, 20]
 
 ground_truth:
   relevant:
@@ -16,69 +21,86 @@ ground_truth:
   exhaustive: false
 
 gates:
-  recall:
+  Success@5:
     min: 1.0
+  Recall@20:
+    min: 1.0
+
+regression_gates:
+  Recall@20:
+    max_drop: 0.05
 ```
 
-## Fields
+## Cutoffs
 
-### `schema_version`
+`top_k` is the maximum ranked result budget requested from the retriever.
+`evaluation.cutoffs` optionally evaluates that same result list at smaller cutoffs.
+Every cutoff must be positive and no larger than `top_k`. `top_k` is always
+evaluated even when omitted from `evaluation.cutoffs`.
 
-Required. Must be `1` for the current contract.
+## Ground truth
 
-### `id`
+`ground_truth.relevant` is a non-empty set of stable known-relevant result IDs.
 
-Required non-empty string. IDs must be unique across all scenarios loaded in one command.
+`ground_truth.exhaustive: false` means unlisted results are unjudged, not proven
+irrelevant. `Precision@K` and `UnexpectedCount@K` are therefore unavailable.
 
-### `query`
+`ground_truth.exhaustive: true` declares the relevant set complete for the evaluated
+scope and enables those exhaustive-only measures.
 
-Required non-empty string passed to the retriever.
+## Canonical metrics
 
-### `top_k`
+Supported scenario-level metric families are:
 
-Positive integer. Defaults to `20`. Evaluation considers at most the first `top_k` adapter results.
+- `Recall@K`
+- `Success@K`
+- `RR@K`
+- `nDCG@K` using binary relevance
+- `EvidenceDensity@K`
+- `ResultCount@K`
+- `Precision@K` — exhaustive only
+- `UnexpectedCount@K` — exhaustive only
 
-### `ground_truth.relevant`
+Suite aggregation converts `RR@K` to `MRR@K`.
 
-Required non-empty list of unique stable result IDs expected to be relevant.
+Legacy gate names from v0.1 resolve to `top_k`:
 
-The ID is backend-agnostic. It can represent a file, document, chunk, URI, database key, or another stable retrieval identity.
+- `recall` -> `Recall@top_k`
+- `rr` -> `RR@top_k`
+- `result_count` -> `ResultCount@top_k`
+- `precision` -> `Precision@top_k`
+- `unexpected_count` -> `UnexpectedCount@top_k`
 
-### `ground_truth.exhaustive`
-
-Boolean, default `false`.
-
-- `false`: the declared IDs are known-relevant examples, but unlisted results are not automatically considered irrelevant.
-- `true`: the scenario asserts that the declared set is the complete relevant set for the evaluated scope.
-
-`precision` and `unexpected_count` gates are rejected unless this value is `true`.
-
-### `gates`
-
-Optional mapping from metric names to inclusive `min` and/or `max` bounds.
-
-Supported v0.1 scenario metrics:
-
-- `recall`
-- `rr`
-- `result_count`
-- `precision` — exhaustive judgments only
-- `unexpected_count` — exhaustive judgments only
-
-Example:
+## Absolute gates
 
 ```yaml
 gates:
-  recall:
-    min: 1.0
-  rr:
-    min: 0.25
-  result_count:
+  Recall@20:
+    min: 0.90
+  ResultCount@20:
     max: 20
 ```
 
-Unknown fields and unknown gate metrics are rejected rather than ignored.
+Bounds are inclusive.
+
+## Regression gates
+
+Regression gates are evaluated only by `retrievalgate compare`.
+
+```yaml
+regression_gates:
+  Recall@20:
+    max_drop: 0.05
+  ResultCount@20:
+    max_increase: 5
+```
+
+`max_drop` limits how far current may fall below baseline. `max_increase` limits
+how far current may rise above baseline. Neither direction is assumed to be globally
+good or bad; the scenario author chooses the relevant bound.
 
 ## Fingerprints
 
-Each normalized scenario is serialized canonically and hashed with SHA-256. Structured results include this fingerprint so future baseline comparison can reject comparisons produced from materially different contracts.
+Each normalized scenario is canonically serialized and hashed with SHA-256. New
+optional fields are omitted from the fingerprint while left at their defaults so an
+unchanged v0.1 scenario preserves its historical fingerprint.
