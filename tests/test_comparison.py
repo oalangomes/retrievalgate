@@ -56,7 +56,7 @@ def test_compare_reports_missing_recovered_rank_and_metric_deltas() -> None:
 def test_compare_applies_explicit_regression_gate() -> None:
     scenario = _scenario(regression=True)
     baseline = build_suite_result([evaluate(scenario, _response("a", "b", "c"))])
-    current = build_suite_result([evaluate(scenario, _response("a", "noise", "other"))])
+    current = build_suite_result([evaluate(scenario, _response("a", "b", "noise"))])
 
     comparison = compare_results(baseline, current)
 
