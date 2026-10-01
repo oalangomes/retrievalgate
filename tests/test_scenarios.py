@@ -8,7 +8,7 @@ from retrievalgate.scenarios import load_scenarios, scenario_fingerprint
 
 
 def test_partial_ground_truth_rejects_precision_gate() -> None:
-    with pytest.raises(ValueError, match="require ground_truth.exhaustive=true"):
+    with pytest.raises(ValueError, match="requires ground_truth.exhaustive=true"):
         Scenario.model_validate(
             {
                 "schema_version": 1,
