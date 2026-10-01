@@ -281,7 +281,7 @@ def compare_results(baseline: SuiteResult, current: SuiteResult) -> SuiteCompari
             )
         )
 
-    suite_metrics = ()
+    suite_metrics: tuple[MetricDelta, ...] = ()
     if baseline.summary.metrics or current.summary.metrics:
         suite_metrics = _mapping_deltas(
             baseline.summary.metrics,
