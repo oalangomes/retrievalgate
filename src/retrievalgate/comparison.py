@@ -9,9 +9,9 @@ from typing import Literal
 from pydantic import ValidationError
 
 from retrievalgate.errors import ComparisonError
-from retrievalgate.models import ScenarioResult, SuiteResult
+from retrievalgate.models import RegressionGateBounds, ScenarioResult, SuiteResult
 
-_METRIC_NAMES = ("recall", "rr", "result_count", "precision", "unexpected_count")
+_LEGACY_METRIC_NAMES = ("recall", "rr", "result_count", "precision", "unexpected_count")
 
 
 @dataclass(frozen=True)
@@ -37,6 +37,22 @@ class RankDelta:
 
 
 @dataclass(frozen=True)
+class RegressionEvaluation:
+    """One explicit baseline-relative regression contract."""
+
+    metric: str
+    baseline: float
+    current: float
+    max_drop: float | None
+    max_increase: float | None
+    passed: bool
+
+    @property
+    def delta(self) -> float:
+        return self.current - self.baseline
+
+
+@dataclass(frozen=True)
 class ScenarioComparison:
     """Comparable changes for one scenario."""
 
@@ -47,6 +63,7 @@ class ScenarioComparison:
     missing: tuple[tuple[str, int], ...]
     recovered: tuple[tuple[str, int], ...]
     rank_changes: tuple[RankDelta, ...]
+    regressions: tuple[RegressionEvaluation, ...]
 
 
 @dataclass(frozen=True)
@@ -57,13 +74,22 @@ class SuiteComparison:
     current_status: Literal["pass", "fail"]
     baseline_mrr: float
     current_mrr: float
+    suite_metrics: tuple[MetricDelta, ...]
     scenarios: tuple[ScenarioComparison, ...]
 
     @property
-    def exit_code(self) -> int:
-        """Preserve current retrieval-contract semantics without relative gates."""
+    def regression_failed(self) -> bool:
+        return any(
+            not evaluation.passed
+            for scenario in self.scenarios
+            for evaluation in scenario.regressions
+        )
 
-        return 1 if self.current_status == "fail" else 0
+    @property
+    def exit_code(self) -> int:
+        """Fail for an absolute contract failure or an explicit regression gate."""
+
+        return 1 if self.current_status == "fail" or self.regression_failed else 0
 
 
 def load_result(path: Path) -> SuiteResult:
@@ -119,12 +145,33 @@ def _validate_compatibility(
         )
 
 
+def _mapping_deltas(
+    baseline: dict[str, float],
+    current: dict[str, float],
+    *,
+    label: str,
+) -> tuple[MetricDelta, ...]:
+    if set(baseline) != set(current):
+        raise ComparisonError(f"{label} metric availability differs between results")
+    return tuple(
+        MetricDelta(name=name, baseline=baseline[name], current=current[name])
+        for name in sorted(baseline)
+    )
+
+
 def _metric_deltas(
     baseline: ScenarioResult,
     current: ScenarioResult,
 ) -> tuple[MetricDelta, ...]:
+    if baseline.metrics.measures or current.metrics.measures:
+        return _mapping_deltas(
+            baseline.metrics.measures,
+            current.metrics.measures,
+            label=f"scenario '{baseline.id}'",
+        )
+
     deltas: list[MetricDelta] = []
-    for name in _METRIC_NAMES:
+    for name in _LEGACY_METRIC_NAMES:
         baseline_value = getattr(baseline.metrics, name)
         current_value = getattr(current.metrics, name)
         if baseline_value is None and current_value is None:
@@ -175,8 +222,38 @@ def _rank_deltas(
     return tuple(missing), tuple(recovered), tuple(changed)
 
 
+def _regression_evaluation(
+    metric: str,
+    bounds: RegressionGateBounds,
+    baseline: ScenarioResult,
+    current: ScenarioResult,
+) -> RegressionEvaluation:
+    try:
+        before = baseline.metrics.measures[metric]
+        after = current.metrics.measures[metric]
+    except KeyError as exc:
+        raise ComparisonError(
+            f"regression metric {metric!r} is unavailable for scenario '{baseline.id}'"
+        ) from exc
+
+    delta = after - before
+    passed = True
+    if bounds.max_drop is not None and delta < -bounds.max_drop:
+        passed = False
+    if bounds.max_increase is not None and delta > bounds.max_increase:
+        passed = False
+    return RegressionEvaluation(
+        metric=metric,
+        baseline=before,
+        current=after,
+        max_drop=bounds.max_drop,
+        max_increase=bounds.max_increase,
+        passed=passed,
+    )
+
+
 def compare_results(baseline: SuiteResult, current: SuiteResult) -> SuiteComparison:
-    """Compare compatible suites without inventing relative regression thresholds."""
+    """Compare compatible suites and apply only explicitly configured regression gates."""
 
     baseline_index = _index_scenarios(baseline, "baseline")
     current_index = _index_scenarios(current, "current")
@@ -187,6 +264,10 @@ def compare_results(baseline: SuiteResult, current: SuiteResult) -> SuiteCompari
         before = baseline_index[scenario_id]
         after = current_index[scenario_id]
         missing, recovered, rank_changes = _rank_deltas(before, after)
+        regressions = tuple(
+            _regression_evaluation(metric, bounds, before, after)
+            for metric, bounds in sorted(after.regression_gates.items())
+        )
         scenarios.append(
             ScenarioComparison(
                 id=scenario_id,
@@ -196,7 +277,16 @@ def compare_results(baseline: SuiteResult, current: SuiteResult) -> SuiteCompari
                 missing=missing,
                 recovered=recovered,
                 rank_changes=rank_changes,
+                regressions=regressions,
             )
+        )
+
+    suite_metrics = ()
+    if baseline.summary.metrics or current.summary.metrics:
+        suite_metrics = _mapping_deltas(
+            baseline.summary.metrics,
+            current.summary.metrics,
+            label="suite",
         )
 
     return SuiteComparison(
@@ -204,6 +294,7 @@ def compare_results(baseline: SuiteResult, current: SuiteResult) -> SuiteCompari
         current_status=current.status,
         baseline_mrr=baseline.summary.mrr,
         current_mrr=current.summary.mrr,
+        suite_metrics=suite_metrics,
         scenarios=tuple(scenarios),
     )
 
@@ -229,12 +320,20 @@ def _format_delta(delta: float, *, integer: bool) -> str:
 def format_comparison(comparison: SuiteComparison) -> str:
     """Render deterministic, CI-friendly comparison output."""
 
-    lines = [
-        (
-            f"Suite MRR {comparison.baseline_mrr:.3f} -> {comparison.current_mrr:.3f} "
+    lines = ["Retrieval Regression Report", ""]
+    if comparison.suite_metrics:
+        lines.append("Suite metrics")
+        for metric in comparison.suite_metrics:
+            lines.append(
+                f"  {metric.name}: {metric.baseline:.3f} -> "
+                f"{metric.current:.3f} ({metric.delta:+.3f})"
+            )
+    else:
+        lines.append(
+            f"Suite MRR {comparison.baseline_mrr:.3f} -> "
+            f"{comparison.current_mrr:.3f} "
             f"({comparison.current_mrr - comparison.baseline_mrr:+.3f})"
         )
-    ]
 
     for scenario in comparison.scenarios:
         lines.append("")
@@ -257,11 +356,25 @@ def format_comparison(comparison: SuiteComparison) -> str:
         for rank in scenario.rank_changes:
             lines.append(f"  Rank: {rank.id} {rank.baseline} -> {rank.current}")
 
+        for regression in scenario.regressions:
+            marker = "PASS" if regression.passed else "FAIL"
+            bounds: list[str] = []
+            if regression.max_drop is not None:
+                bounds.append(f"max_drop={regression.max_drop:.3f}")
+            if regression.max_increase is not None:
+                bounds.append(f"max_increase={regression.max_increase:.3f}")
+            lines.append(
+                f"  {marker} regression {regression.metric}: "
+                f"{regression.baseline:.3f} -> {regression.current:.3f} "
+                f"({regression.delta:+.3f}; {', '.join(bounds)})"
+            )
+
         if scenario.baseline_status == "pass" and scenario.current_status == "fail":
             lines.append("  REGRESSION: PASS -> FAIL")
         elif scenario.baseline_status == "fail" and scenario.current_status == "pass":
             lines.append("  RECOVERY: FAIL -> PASS")
 
     lines.append("")
-    lines.append(f"CURRENT {comparison.current_status.upper()}")
+    outcome = "FAIL" if comparison.exit_code else "PASS"
+    lines.append(f"CURRENT {comparison.current_status.upper()} | REGRESSION {outcome}")
     return "\n".join(lines)
