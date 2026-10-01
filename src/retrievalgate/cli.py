@@ -11,6 +11,12 @@ from retrievalgate.adapter import run_adapter
 from retrievalgate.comparison import compare_files, format_comparison
 from retrievalgate.errors import RetrievalGateError
 from retrievalgate.evaluator import evaluate
+from retrievalgate.reporting import (
+    format_console_report,
+    format_junit_report,
+    format_markdown_report,
+    write_text_report,
+)
 from retrievalgate.results import build_suite_result, write_result
 from retrievalgate.scenarios import load_scenarios
 
@@ -43,7 +49,13 @@ def run(
     path: Annotated[Path, typer.Argument()],
     adapter: Annotated[str, typer.Option("--adapter", help="External retriever command.")],
     output: Annotated[
-        Path | None, typer.Option("--output", help="Write structured JSON result.")
+        Path | None, typer.Option("--output", help="Write canonical JSON result.")
+    ] = None,
+    markdown: Annotated[
+        Path | None, typer.Option("--markdown", help="Write a Markdown report.")
+    ] = None,
+    junit: Annotated[
+        Path | None, typer.Option("--junit", help="Write a JUnit XML report.")
     ] = None,
     timeout: Annotated[
         float, typer.Option("--timeout", min=0.001, help="Adapter timeout in seconds.")
@@ -56,26 +68,17 @@ def run(
         scenario_results = []
         for scenario in scenarios:
             response = run_adapter(adapter, scenario, timeout)
-            result = evaluate(scenario, response)
-            scenario_results.append(result)
-
-            marker = "PASS" if result.status == "pass" else "FAIL"
-            metrics = result.metrics
-            typer.echo(
-                f"{marker} {result.id} | recall={metrics.recall:.3f} "
-                f"rr={metrics.rr:.3f} results={metrics.result_count}"
-            )
-            if result.expected.missing:
-                typer.echo(f"  missing: {', '.join(result.expected.missing)}")
+            scenario_results.append(evaluate(scenario, response))
 
         suite = build_suite_result(scenario_results)
         if output is not None:
             write_result(output, suite)
+        if markdown is not None:
+            write_text_report(markdown, format_markdown_report(suite))
+        if junit is not None:
+            write_text_report(junit, format_junit_report(suite))
 
-        typer.echo(
-            f"{suite.status.upper()} {suite.summary.passed}/{suite.summary.scenarios} scenarios "
-            f"| MRR={suite.summary.mrr:.3f}"
-        )
+        typer.echo(format_console_report(suite))
         if suite.status == "fail":
             raise typer.Exit(code=1)
     except RetrievalGateError as exc:
