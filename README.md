@@ -2,212 +2,190 @@
 
 > **Regression tests for retrieval.**
 
-`retrievalgate` is a backend-agnostic CLI for turning retrieval expectations into deterministic, executable contracts. Point it at any retriever that can speak a tiny JSON stdin/stdout protocol, define what must be retrieved, and fail CI when retrieval quality regresses.
+`retrievalgate` is a backend-agnostic CLI for turning retrieval expectations into
+executable quality contracts. Point it at any retriever that speaks a tiny JSON
+stdin/stdout protocol, define the evidence that must be retrieved, and fail CI when
+quality drops below an absolute contract or an explicit baseline-relative regression
+budget.
 
-It does **not** implement retrieval. No embeddings, vector database, search engine, LLM judge, agent framework, or backend SDK is required.
+It does **not** implement retrieval. No embeddings, vector database, search engine,
+LLM judge, agent framework, or backend SDK is required.
 
-## Why
+## Quickstart
 
-Changes to BM25, dense retrieval, hybrid search, query expansion, chunking, indexing, filters, ranking thresholds, or `top_k` can improve one case and silently break another.
-
-`retrievalgate` makes those expectations testable:
-
-```text
-retriever -> ranked result IDs -> metrics -> gates -> PASS / FAIL
+```bash
+pipx install retrievalgate
+# or
+uv tool install retrievalgate
 ```
 
-A scenario is deliberately small:
+Validate and run the bundled example:
+
+```bash
+retrievalgate validate examples/minimal/scenarios/
+
+retrievalgate run examples/minimal/scenarios/ \
+  --adapter "python examples/minimal/retriever.py" \
+  --output result.json \
+  --markdown report.md \
+  --junit report.xml
+```
+
+The console report separates **quality**, **efficiency**, and optional
+**performance/cost** observations so a regression is understandable without opening
+the JSON artifact.
+
+## Scenario
 
 ```yaml
 schema_version: 1
 id: medication-history
 query: add medication usage history endpoint
-top_k: 3
+top_k: 20
+
+evaluation:
+  cutoffs: [1, 5, 10, 20]
 
 ground_truth:
   relevant:
     - src/services/medicationUsageHistoryService.js
     - src/controllers/medicationUsageController.js
-    - tests/medicationUsageHistoryService.test.js
   exhaustive: false
 
 gates:
-  recall:
+  Success@5:
     min: 1.0
-  rr:
-    min: 0.5
+  Recall@20:
+    min: 1.0
+  nDCG@20:
+    min: 0.8
+
+regression_gates:
+  Recall@20:
+    max_drop: 0.05
+  nDCG@20:
+    max_drop: 0.10
 ```
 
-## Installation
+Legacy v0.1 gate names such as `recall`, `rr`, `result_count`, `precision`,
+and `unexpected_count` remain accepted and resolve to the scenario's `top_k`
+cutoff.
 
-Install as an isolated CLI with either tool:
+## Metrics
+
+One ranked result list can be evaluated at multiple cutoffs without invoking the
+retriever again.
+
+Always available:
+
+- `Recall@K`
+- `Success@K`
+- `RR@K`
+- suite-level `MRR@K`
+- binary `nDCG@K`
+- `EvidenceDensity@K` — known relevant results / returned results
+- `ResultCount@K`
+- expected ranks and missing IDs
+
+With `ground_truth.exhaustive: true`:
+
+- `Precision@K`
+- `UnexpectedCount@K`
+
+`EvidenceDensity@K` is diagnostic when ground truth is partial. It measures density
+of **known** relevant evidence and must not be interpreted as exhaustive precision.
+
+## Optional operational telemetry
+
+Adapters may attach backend-neutral observations:
+
+```json
+{
+  "protocol_version": 1,
+  "results": [
+    {"id": "src/foo.py", "score": 0.91}
+  ],
+  "telemetry": {
+    "duration_ms": 18.4,
+    "candidates_examined": 80,
+    "candidates_returned": 20,
+    "returned_chars": 9210
+  }
+}
+```
+
+These values are reported separately from quality metrics. A single retrievalgate run
+does not fabricate p50/p95/p99; repeated-run percentile methodology belongs to the
+benchmark producing those observations.
+
+## Regression comparison
 
 ```bash
-pipx install retrievalgate
+retrievalgate compare baseline.json current.json
 ```
 
-or:
+Comparison remains strict:
 
-```bash
-uv tool install retrievalgate
-```
+- scenario sets must match;
+- scenario fingerprints must match;
+- metric availability must match;
+- expected IDs must match.
 
-Python 3.11 or newer is required.
+It reports metric deltas, lost/recovered expected IDs, rank movement, PASS/FAIL
+transitions, and configured regression gates. A comparison fails only for a current
+absolute contract failure or an **explicitly configured** regression budget.
 
-> `v0.1.0` installation becomes available after the first PyPI publication. Until then, install from a local clone with `pip install -e .`.
+## Reports
 
-## Quickstart
+`retrievalgate run` supports:
 
-Validate the example contract:
+- console — human-readable local/CI report;
+- canonical JSON via `--output`;
+- Markdown via `--markdown`;
+- JUnit XML via `--junit`.
 
-```bash
-retrievalgate validate examples/minimal/scenarios/
-```
+The JSON artifact remains deterministic and suitable for later comparison.
 
-Run it against the example retriever:
+## Adapter protocol
 
-```bash
-retrievalgate run examples/minimal/scenarios/ \
-  --adapter "python examples/minimal/retriever.py" \
-  --output result.json
-```
-
-Expected shape:
-
-```text
-PASS medication-history | recall=1.000 rr=1.000 results=3
-PASS 1/1 scenarios | MRR=1.000
-```
-
-A failed gate exits with code `1`, making the command directly usable in CI.
-
-## Any retriever can be tested
-
-For each scenario, `retrievalgate` starts the configured command and writes this JSON to its `stdin`:
+For each scenario, retrievalgate sends:
 
 ```json
 {
   "protocol_version": 1,
   "scenario_id": "medication-history",
   "query": "add medication usage history endpoint",
-  "top_k": 3
+  "top_k": 20
 }
 ```
 
-The retriever writes ranked IDs to `stdout`:
+The retriever returns ranked stable IDs:
 
 ```json
 {
   "protocol_version": 1,
   "results": [
-    {"id": "src/services/medicationUsageHistoryService.js", "score": 0.91},
-    {"id": "src/controllers/medicationUsageController.js", "score": 0.84},
-    {"id": "tests/medicationUsageHistoryService.test.js", "score": 0.79}
+    {"id": "src/foo.py", "score": 0.91},
+    {"id": "src/bar.py", "score": 0.84}
   ]
 }
 ```
 
-The result `id` is intentionally generic. It may be a file path, document ID, chunk ID, URI, database key, or any stable identifier meaningful to the system under test.
+Ground truth and gates are never sent to the retriever.
 
-See [`docs/adapter-protocol.md`](docs/adapter-protocol.md) for the exact contract.
-
-## Metrics in the v0.1 contract
-
-Always available:
-
-- **Recall** — fraction of declared relevant IDs found within `top_k`.
-- **RR** — reciprocal rank of the first declared relevant ID.
-- **MRR** — mean RR across the executed scenario suite.
-- **Result count** — number of returned results considered, capped at `top_k`.
-- **Expected ranks / missing IDs** — deterministic diagnostics for each declared relevant ID.
-
-Only when `ground_truth.exhaustive: true`:
-
-- **Precision** — relevant IDs found divided by `top_k`.
-- **Unexpected count** — returned IDs within `top_k` that are not in the exhaustive relevant set.
-
-That distinction is intentional. A partial ground truth cannot prove that an unlisted result is irrelevant, so `retrievalgate` refuses precision-like gates unless the scenario explicitly declares its judgments exhaustive.
-
-## Gates
-
-Gates use structured inclusive bounds rather than a custom expression language:
-
-```yaml
-gates:
-  recall:
-    min: 1.0
-  rr:
-    min: 0.25
-  result_count:
-    max: 20
-```
-
-For exhaustive judgments:
-
-```yaml
-ground_truth:
-  relevant: [doc-a, doc-b]
-  exhaustive: true
-
-gates:
-  precision:
-    min: 0.20
-  unexpected_count:
-    max: 8
-```
-
-## Baseline comparison
-
-Results can be compared without coupling the test runner to a specific retriever:
-
-```bash
-retrievalgate compare baseline.json current.json
-```
-
-Comparison is deliberately strict:
-
-- scenario IDs must be identical;
-- scenario fingerprints must match;
-- metric availability and expected result IDs must be compatible;
-- scenarios are compared in deterministic ID order.
-
-The output reports metric deltas, expected IDs that disappeared or recovered, rank changes, and PASS/FAIL transitions.
-
-`compare` does **not** invent relative thresholds. A metric getting slightly worse is reported, but is not automatically considered a failed contract. Exit code `1` means the **current** result violates its scenario gates. Incompatible or invalid result files return `2`.
-
-## CLI
-
-```text
-retrievalgate validate <scenario-or-directory>
-retrievalgate run <scenario-or-directory> --adapter <command>
-retrievalgate run <scenario-or-directory> --adapter <command> --output result.json
-retrievalgate compare <baseline.json> <current.json>
-```
-
-### Exit codes
+## Exit codes
 
 | Code | Meaning |
 |---:|---|
-| `0` | Current retrieval contracts pass |
-| `1` | Execution/comparison succeeded, but the current result has a failed retrieval contract |
-| `2` | Scenario, configuration, adapter, protocol, or comparison error |
+| `0` | Current absolute contracts and configured regression gates pass |
+| `1` | A current contract or explicit regression gate fails |
+| `2` | Scenario, adapter, protocol, configuration, or comparison error |
 
-## Design boundaries
+## Design boundary
 
-`retrievalgate` is intentionally not:
-
-- a retrieval engine;
-- a RAG framework;
-- an embeddings library;
-- a vector database client;
-- a search-engine-specific test harness;
-- an LLM-as-a-judge framework;
-- a benchmark publishing platform;
-- an observability server.
-
-Backend-specific integration belongs outside the core and talks to `retrievalgate` through the command adapter protocol.
-
-The architectural boundary is recorded in [`ADR-0001`](docs/adr/0001-product-boundary.md).
+`retrievalgate` is intentionally not a retriever, benchmark runner, embeddings
+library, search-engine client, LLM judge, observability server, or dashboard. Backend
+integration stays outside the core and talks through the command adapter protocol.
 
 ## Development
 
@@ -218,7 +196,8 @@ ruff check .
 mypy src tests
 ```
 
-CI runs tests on Python 3.11, 3.12, and 3.13 plus lint, type checking, distribution builds, package metadata validation, and a clean-wheel quickstart smoke.
+CI runs Python 3.11, 3.12, and 3.13, Ruff, mypy strict, package validation, and a
+clean-wheel quickstart.
 
 ## Documentation
 
@@ -228,10 +207,6 @@ CI runs tests on Python 3.11, 3.12, and 3.13 plus lint, type checking, distribut
 - [Product boundary ADR](docs/adr/0001-product-boundary.md)
 - [Release process](docs/releasing.md)
 - [Contributing](CONTRIBUTING.md)
-
-## Status
-
-`retrievalgate` is preparing its first public release, `v0.1.0`. Public contracts are versioned from day one.
 
 ## License
 

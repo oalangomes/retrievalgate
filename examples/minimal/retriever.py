@@ -12,10 +12,17 @@ results = [
     {"id": "tests/medicationUsageHistoryService.test.js", "score": 0.79},
 ]
 
+selected = results[: request["top_k"]]
 json.dump(
     {
         "protocol_version": request["protocol_version"],
-        "results": results[: request["top_k"]],
+        "results": selected,
+        "telemetry": {
+            "duration_ms": 1.0,
+            "candidates_examined": 3,
+            "candidates_returned": len(selected),
+            "returned_chars": 0,
+        },
     },
     sys.stdout,
 )

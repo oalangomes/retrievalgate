@@ -1,73 +1,79 @@
 # Structured result format v1
 
-`retrievalgate run --output result.json` writes deterministic JSON suitable for CI artifacts and baseline comparison.
+`retrievalgate run --output result.json` writes deterministic JSON for CI artifacts
+and baseline comparison.
 
-The output intentionally omits timestamps, hostnames, environment paths, and other run-specific metadata that would make identical evaluations serialize differently.
+The schema remains version `1`. v0.1 fields are retained while canonical `@K`
+measures and optional telemetry extend the result.
 
-## Shape
+## Scenario metrics
+
+Each scenario keeps the legacy top-k summary fields:
 
 ```json
 {
-  "schema_version": 1,
-  "tool": {
-    "name": "retrievalgate",
-    "version": "0.1.0.dev0"
-  },
-  "status": "pass",
-  "summary": {
-    "scenarios": 1,
-    "passed": 1,
-    "failed": 0,
-    "mrr": 1.0
-  },
-  "scenarios": [
-    {
-      "id": "medication-history",
-      "scenario_fingerprint": "sha256:...",
-      "status": "pass",
-      "top_k": 3,
-      "metrics": {
-        "recall": 1.0,
-        "rr": 1.0,
-        "result_count": 3,
-        "precision": null,
-        "unexpected_count": null
-      },
-      "expected": {
-        "total": 3,
-        "found": 3,
-        "missing": [],
-        "ranks": {
-          "src/services/medicationUsageHistoryService.js": 1,
-          "src/controllers/medicationUsageController.js": 2,
-          "tests/medicationUsageHistoryService.test.js": 3
-        }
-      },
-      "gates": []
-    }
-  ]
+  "recall": 1.0,
+  "rr": 1.0,
+  "result_count": 3,
+  "precision": null,
+  "unexpected_count": null
 }
 ```
 
+and adds canonical measures:
+
+```json
+{
+  "measures": {
+    "EvidenceDensity@1": 1.0,
+    "EvidenceDensity@3": 1.0,
+    "RR@1": 1.0,
+    "RR@3": 1.0,
+    "Recall@1": 0.3333333333333333,
+    "Recall@3": 1.0,
+    "ResultCount@1": 1.0,
+    "ResultCount@3": 3.0,
+    "Success@1": 1.0,
+    "Success@3": 1.0,
+    "nDCG@1": 1.0,
+    "nDCG@3": 1.0
+  }
+}
+```
+
+Optional adapter telemetry is preserved under the scenario metric object and aggregated
+separately at suite level.
+
+## Suite aggregation
+
+The suite summary includes:
+
+- pass/fail counts;
+- legacy `mrr`;
+- mean canonical metrics;
+- `MRR@K` derived from scenario `RR@K`;
+- a count of how many scenarios contributed to each aggregate;
+- mean operational telemetry and contribution counts when telemetry exists.
+
+This prevents a metric evaluated on only a subset of scenarios from silently looking
+like a full-suite aggregate.
+
 ## Determinism
 
-For the same normalized scenarios and the same ordered retriever results, serialized output is stable. Scenario input ordering is deterministic, and each scenario carries a SHA-256 fingerprint of its normalized contract.
+Timestamps, hostnames, local paths, and other run-specific metadata remain excluded.
+Given the same normalized scenarios and ranked retriever results, canonical JSON is
+stable.
 
-## Safe baseline comparison
+## Comparison
 
-`retrievalgate compare baseline.json current.json` only compares result suites when their scenario sets match and each same-ID scenario has the same fingerprint.
+`retrievalgate compare baseline.json current.json` requires identical scenario sets
+and matching scenario fingerprints. It reports:
 
-A matching fingerprint means the query, `top_k`, ground truth, exhaustiveness declaration, and gates came from the same normalized scenario contract. This prevents a changed test definition from being mistaken for a retriever regression.
+- suite and scenario metric deltas;
+- missing and recovered expected IDs;
+- expected-result rank movement;
+- absolute PASS/FAIL transitions;
+- explicit regression-gate evaluation.
 
-Comparison also verifies that metric availability and expected result IDs remain compatible.
-
-The command reports:
-
-- metric deltas;
-- expected IDs missing from current results;
-- expected IDs recovered in current results;
-- rank changes for expected IDs present in both runs;
-- PASS/FAIL transitions;
-- suite MRR delta.
-
-There are no implicit relative regression thresholds in v0.1. Exit code `1` reflects the current result's existing absolute gates; comparison/configuration errors return `2`.
+No implicit relative threshold exists. If a scenario does not configure a regression
+gate, a numeric delta is diagnostic only.
